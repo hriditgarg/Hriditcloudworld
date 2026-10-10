@@ -69,6 +69,11 @@
   .account-summary p { margin: 0; }
   #logout { padding: 8px 12px; }
   #score-history { margin: 8px 0 0; padding-left: 20px; color: #cbd5e1; }
+  #terms-panel { width: min(90vw, 560px); }
+  #terms-panel li { margin: 0 0 10px; color: #cbd5e1; }
+  .terms-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+  #disagree { background: #475569; color: white; }
+  #terms-message { min-height: 1.25em; margin-bottom: 0; }
   #restart { margin-top: 14px; }
   .controls {
     display: grid;
@@ -82,6 +87,23 @@
 </style>
 </head>
 <body>
+<section id="terms-panel" class="account-panel" aria-labelledby="terms-heading">
+  <h1 id="terms-heading">Snake Game Terms and Conditions</h1>
+  <p>Please read these terms before using the game.</p>
+  <ul>
+    <li>Accounts and scores are stored only in this browser on this device. There is no online account service or backup.</li>
+    <li>Keep your device and browser profile secure. The game owner cannot access your local account to investigate a compromise, restore scores, recover your password, or secure your device.</li>
+    <li>The game is provided as-is. To the extent permitted by applicable law, the owner is not responsible for loss of locally stored account data or scores, or access to data caused by someone who can use or alter your browser profile.</li>
+    <li>These terms do not remove any rights that cannot legally be excluded.</li>
+  </ul>
+  <p>Agree to these terms to continue. If you disagree, you cannot use the game; close this page instead.</p>
+  <div class="terms-actions">
+    <button id="agree-terms" type="button">I agree</button>
+    <button id="disagree-terms" type="button">I disagree</button>
+  </div>
+  <p id="terms-message" role="status" aria-live="polite"></p>
+</section>
+<main id="game-app" hidden>
 <h1>🐍 Snake</h1>
 <section id="auth-panel" class="account-panel" aria-labelledby="auth-heading">
   <h2 id="auth-heading">Your account</h2>
@@ -131,6 +153,7 @@
   <button type="button" data-dir="right" disabled>▶</button>
 </div>
 <p>Use arrow keys or the buttons to move.</p>
+</main>
 
 <script>
 const canvas = document.getElementById("game");
@@ -142,8 +165,12 @@ const accountPanel = document.getElementById("account-panel");
 const authMessage = document.getElementById("auth-message");
 const loginForm = document.getElementById("login-form");
 const registerForm = document.getElementById("register-form");
+const termsPanel = document.getElementById("terms-panel");
+const termsMessage = document.getElementById("terms-message");
+const gameApp = document.getElementById("game-app");
 const usersStorageKey = "hriditSnakeUsers";
 const sessionStorageKey = "hriditSnakeSession";
+const termsAcceptedKey = "hriditSnakeTermsAcceptedV1";
 const passwordIterations = 600000;
 
 const cells = 20;
@@ -384,6 +411,24 @@ function getUsernameKey(username) {
   return username.trim().toLowerCase();
 }
 
+function unlockGame() {
+  termsPanel.hidden = true;
+  gameApp.hidden = false;
+}
+
+document.getElementById("agree-terms").addEventListener("click", () => {
+  try {
+    localStorage.setItem(termsAcceptedKey, "accepted");
+    unlockGame();
+  } catch (error) {
+    termsMessage.textContent = `Your agreement could not be saved: ${error.message}. The game remains locked.`;
+  }
+});
+
+document.getElementById("disagree-terms").addEventListener("click", () => {
+  termsMessage.textContent = "You disagreed, so the game is unavailable. Close this page to leave.";
+});
+
 registerForm.addEventListener("submit", async event => {
   event.preventDefault();
   const username = document.getElementById("register-username").value.trim();
@@ -479,6 +524,11 @@ document.querySelectorAll("[data-dir]").forEach(button => {
 });
 
 startButton.addEventListener("click", start);
+try {
+  if (localStorage.getItem(termsAcceptedKey) === "accepted") unlockGame();
+} catch (error) {
+  termsMessage.textContent = `Saved agreement could not be checked: ${error.message}. The game remains locked.`;
+}
 try {
   const savedSession = localStorage.getItem(sessionStorageKey);
   if (savedSession && readUsers()[savedSession]) {
