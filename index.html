@@ -19,7 +19,8 @@
     font-family: Arial, sans-serif;
     padding: 16px;
   }
-  h1 { margin: 0 0 12px; }
+  h1 { margin: 0 0 12px; text-align: center; }
+  h2 { margin: 0 0 12px; }
   #score { margin-bottom: 12px; font-size: 20px; }
   canvas {
     width: min(90vw, 400px);
@@ -39,6 +40,35 @@
     font-weight: bold;
     cursor: pointer;
   }
+  button:disabled { cursor: not-allowed; opacity: 0.55; }
+  input {
+    width: 100%;
+    margin-top: 5px;
+    padding: 10px;
+    border: 1px solid #64748b;
+    border-radius: 6px;
+    background: #0f172a;
+    color: white;
+    font: inherit;
+  }
+  .account-panel {
+    width: min(90vw, 400px);
+    margin: 8px 0 16px;
+    padding: 16px;
+    border: 1px solid #374151;
+    border-radius: 10px;
+    background: #1f2937;
+  }
+  .auth-forms { display: grid; gap: 16px; }
+  .auth-forms form { display: grid; gap: 10px; }
+  .auth-forms label { display: block; color: #e2e8f0; }
+  .auth-forms button { width: 100%; }
+  #auth-message { min-height: 1.25em; margin: 12px 0 0; }
+  #auth-message[data-error="true"] { color: #fca5a5; }
+  .account-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .account-summary p { margin: 0; }
+  #logout { padding: 8px 12px; }
+  #score-history { margin: 8px 0 0; padding-left: 20px; color: #cbd5e1; }
   #restart { margin-top: 14px; }
   .controls {
     display: grid;
@@ -53,17 +83,52 @@
 </head>
 <body>
 <h1>🐍 Snake</h1>
+<section id="auth-panel" class="account-panel" aria-labelledby="auth-heading">
+  <h2 id="auth-heading">Your account</h2>
+  <p>Accounts and scores are saved in this browser on this device.</p>
+  <div class="auth-forms">
+    <form id="login-form">
+      <h3>Log in</h3>
+      <label for="login-username">Username</label>
+      <input id="login-username" name="username" autocomplete="username" minlength="3" maxlength="20" pattern="[A-Za-z0-9_-]{3,20}" required>
+      <label for="login-password">Password</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">Log in</button>
+    </form>
+    <form id="register-form">
+      <h3>Create account</h3>
+      <label for="register-username">Username (3-20 letters, numbers, _ or -)</label>
+      <input id="register-username" name="username" autocomplete="username" minlength="3" maxlength="20" pattern="[A-Za-z0-9_-]{3,20}" required>
+      <label for="register-password">Password (at least 8 characters)</label>
+      <input id="register-password" name="password" type="password" autocomplete="new-password" minlength="8" required>
+      <label for="register-confirm-password">Confirm password</label>
+      <input id="register-confirm-password" name="confirm-password" type="password" autocomplete="new-password" minlength="8" required>
+      <button type="submit">Create account</button>
+    </form>
+  </div>
+  <p id="auth-message" role="status" aria-live="polite"></p>
+</section>
+
+<section id="account-panel" class="account-panel" aria-label="Account scores" hidden>
+  <div class="account-summary">
+    <p>Logged in as <strong id="current-username"></strong></p>
+    <button id="logout" type="button">Log out</button>
+  </div>
+  <p id="account-stats"></p>
+  <h3>Recent scores</h3>
+  <ol id="score-history"></ol>
+</section>
 <div id="score">Score: 0</div>
 <canvas id="game" width="400" height="400"></canvas>
-<button id="restart">Start Game</button>
+<button id="restart" type="button" disabled>Start Game</button>
 
 <div class="controls">
   <span class="empty"></span>
-  <button data-dir="up">▲</button>
+  <button type="button" data-dir="up" disabled>▲</button>
   <span class="empty"></span>
-  <button data-dir="left">◀</button>
-  <button data-dir="down">▼</button>
-  <button data-dir="right">▶</button>
+  <button type="button" data-dir="left" disabled>◀</button>
+  <button type="button" data-dir="down" disabled>▼</button>
+  <button type="button" data-dir="right" disabled>▶</button>
 </div>
 <p>Use arrow keys or the buttons to move.</p>
 
@@ -72,11 +137,20 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const scoreText = document.getElementById("score");
 const startButton = document.getElementById("restart");
+const authPanel = document.getElementById("auth-panel");
+const accountPanel = document.getElementById("account-panel");
+const authMessage = document.getElementById("auth-message");
+const loginForm = document.getElementById("login-form");
+const registerForm = document.getElementById("register-form");
+const usersStorageKey = "hriditSnakeUsers";
+const sessionStorageKey = "hriditSnakeSession";
+const passwordIterations = 600000;
 
 const cells = 20;
 const tile = canvas.width / cells;
 let snake, food, dx, dy, nextDx, nextDy;
 let score, timer, running, started;
+let currentUserKey = null;
 
 function reset() {
   clearInterval(timer);
@@ -127,6 +201,7 @@ function endGame() {
   clearInterval(timer);
   startButton.textContent = "Play Again";
   draw();
+  if (currentUserKey) saveScore();
 }
 
 function step() {
@@ -153,6 +228,10 @@ function step() {
 }
 
 function start() {
+  if (!currentUserKey) {
+    showAuthMessage("Log in or create an account before starting a game.", true);
+    return;
+  }
   reset();
   running = true;
   started = true;
@@ -162,6 +241,7 @@ function start() {
 }
 
 function turn(direction) {
+  if (!running) return;
   const dirs = {
     up: [0, -1], down: [0, 1],
     left: [-1, 0], right: [1, 0]
@@ -171,13 +251,224 @@ function turn(direction) {
   nextDx = x; nextDy = y;
 }
 
+function showAuthMessage(message, isError = false) {
+  authMessage.textContent = message;
+  authMessage.dataset.error = String(isError);
+}
+
+function readUsers() {
+  const storedUsers = localStorage.getItem(usersStorageKey);
+  if (storedUsers === null) return Object.create(null);
+  const users = JSON.parse(storedUsers);
+  if (!users || typeof users !== "object" || Array.isArray(users)) {
+    throw new Error("Saved account data is invalid. Clear this site's stored data to start over.");
+  }
+  for (const [key, user] of Object.entries(users)) {
+    if (!/^[a-z0-9_-]{3,20}$/.test(key) ||
+        !user || typeof user !== "object" ||
+        typeof user.username !== "string" || getUsernameKey(user.username) !== key ||
+        !Number.isInteger(user.passwordIterations) ||
+        user.passwordIterations < 100000 || user.passwordIterations > 2000000 ||
+        !Number.isInteger(user.bestScore) || user.bestScore < 0 ||
+        !Number.isInteger(user.gamesPlayed) || user.gamesPlayed < 0 ||
+        !Array.isArray(user.scores) || user.scores.length > 10 ||
+        typeof user.salt !== "string" || !/^[A-Za-z0-9+/]{22}==$/.test(user.salt) ||
+        typeof user.passwordHash !== "string" ||
+        !/^[A-Za-z0-9+/]{43}=$/.test(user.passwordHash) ||
+        user.scores.some(result => !result || !Number.isInteger(result.score) ||
+          result.score < 0 || typeof result.playedAt !== "string" ||
+          Number.isNaN(Date.parse(result.playedAt)))) {
+      throw new Error("Saved account data is invalid. Clear this site's stored data to start over.");
+    }
+  }
+  return Object.assign(Object.create(null), users);
+}
+
+function writeUsers(users) {
+  localStorage.setItem(usersStorageKey, JSON.stringify(users));
+}
+
+function bytesToBase64(bytes) {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function base64ToBytes(encoded) {
+  return Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+}
+
+async function hashPassword(password, salt, iterations = passwordIterations) {
+  if (!window.crypto || !crypto.subtle) {
+    throw new Error("Secure password hashing is unavailable in this browser. Open the game over HTTPS.");
+  }
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits({
+    name: "PBKDF2",
+    salt,
+    iterations,
+    hash: "SHA-256"
+  }, key, 256);
+  return new Uint8Array(bits);
+}
+
+function hashesMatch(first, second) {
+  if (first.length !== second.length) return false;
+  let difference = 0;
+  for (let index = 0; index < first.length; index++) {
+    difference |= first[index] ^ second[index];
+  }
+  return difference === 0;
+}
+
+function setSignedInUser(userKey) {
+  currentUserKey = userKey;
+  authPanel.hidden = Boolean(userKey);
+  accountPanel.hidden = !userKey;
+  startButton.disabled = !userKey;
+  document.querySelectorAll("[data-dir]").forEach(button => {
+    button.disabled = !userKey;
+  });
+  if (userKey) {
+    showAuthMessage("");
+    refreshAccount();
+  }
+}
+
+function refreshAccount() {
+  if (!currentUserKey) return;
+  const users = readUsers();
+  const user = users[currentUserKey];
+  if (!user) {
+    localStorage.removeItem(sessionStorageKey);
+    setSignedInUser(null);
+    showAuthMessage("Your saved account could not be found. Please log in again.", true);
+    return;
+  }
+  document.getElementById("current-username").textContent = user.username;
+  document.getElementById("account-stats").textContent =
+    `Best score: ${user.bestScore} · Games played: ${user.gamesPlayed}`;
+  const history = document.getElementById("score-history");
+  history.replaceChildren();
+  user.scores.forEach(result => {
+    const item = document.createElement("li");
+    const date = new Date(result.playedAt);
+    const playedOn = Number.isNaN(date.getTime()) ? "" : ` · ${date.toLocaleDateString()}`;
+    item.textContent = `${result.score}${playedOn}`;
+    history.append(item);
+  });
+}
+
+function saveScore() {
+  try {
+    const users = readUsers();
+    const user = users[currentUserKey];
+    if (!user) throw new Error("The signed-in account is no longer available.");
+    user.bestScore = Math.max(user.bestScore, score);
+    user.gamesPlayed++;
+    user.scores.unshift({score, playedAt: new Date().toISOString()});
+    user.scores = user.scores.slice(0, 10);
+    writeUsers(users);
+    refreshAccount();
+    showAuthMessage("Game over. Your score was saved.");
+  } catch (error) {
+    showAuthMessage(`Game over, but the score could not be saved: ${error.message}`, true);
+  }
+}
+
+function getUsernameKey(username) {
+  return username.trim().toLowerCase();
+}
+
+registerForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const username = document.getElementById("register-username").value.trim();
+  const password = document.getElementById("register-password").value;
+  const confirmation = document.getElementById("register-confirm-password").value;
+  if (password !== confirmation) {
+    showAuthMessage("The passwords do not match.", true);
+    return;
+  }
+  const userKey = getUsernameKey(username);
+  try {
+    if (readUsers()[userKey]) {
+      showAuthMessage("That username is already registered.", true);
+      return;
+    }
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const passwordHash = await hashPassword(password, salt);
+    const users = readUsers();
+    if (users[userKey]) {
+      showAuthMessage("That username is already registered.", true);
+      return;
+    }
+    users[userKey] = {
+      username,
+      salt: bytesToBase64(salt),
+      passwordHash: bytesToBase64(passwordHash),
+      passwordIterations,
+      bestScore: 0,
+      gamesPlayed: 0,
+      scores: []
+    };
+    writeUsers(users);
+    localStorage.setItem(sessionStorageKey, userKey);
+    setSignedInUser(userKey);
+    registerForm.reset();
+    showAuthMessage("Account created. Your password is stored as a salted hash.");
+  } catch (error) {
+    showAuthMessage(`Could not create account: ${error.message}`, true);
+  }
+});
+
+loginForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const userKey = getUsernameKey(document.getElementById("login-username").value);
+  const password = document.getElementById("login-password").value;
+  try {
+    const user = readUsers()[userKey];
+    if (!user) {
+      showAuthMessage("Invalid username or password.", true);
+      return;
+    }
+    const candidateHash = await hashPassword(
+      password,
+      base64ToBytes(user.salt),
+      user.passwordIterations
+    );
+    if (!hashesMatch(candidateHash, base64ToBytes(user.passwordHash))) {
+      showAuthMessage("Invalid username or password.", true);
+      return;
+    }
+    localStorage.setItem(sessionStorageKey, userKey);
+    setSignedInUser(userKey);
+    loginForm.reset();
+    showAuthMessage("You are logged in.");
+  } catch (error) {
+    showAuthMessage(`Could not log in: ${error.message}`, true);
+  }
+});
+
+document.getElementById("logout").addEventListener("click", () => {
+  clearInterval(timer);
+  running = false;
+  localStorage.removeItem(sessionStorageKey);
+  setSignedInUser(null);
+  reset();
+  showAuthMessage("You are logged out.");
+});
+
 document.addEventListener("keydown", e => {
   const keys = {
     ArrowUp: "up", ArrowDown: "down",
     ArrowLeft: "left", ArrowRight: "right",
     w: "up", s: "down", a: "left", d: "right"
   };
-  if (keys[e.key]) {
+  if (keys[e.key] && !(e.target instanceof HTMLInputElement)) {
     e.preventDefault();
     turn(keys[e.key]);
   }
@@ -188,6 +479,18 @@ document.querySelectorAll("[data-dir]").forEach(button => {
 });
 
 startButton.addEventListener("click", start);
+try {
+  const savedSession = localStorage.getItem(sessionStorageKey);
+  if (savedSession && readUsers()[savedSession]) {
+    setSignedInUser(savedSession);
+  } else {
+    if (savedSession) localStorage.removeItem(sessionStorageKey);
+    setSignedInUser(null);
+  }
+} catch (error) {
+  setSignedInUser(null);
+  showAuthMessage(`Could not load saved account data: ${error.message}`, true);
+}
 reset();
 </script>
 </body>
