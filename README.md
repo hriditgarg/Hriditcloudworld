@@ -14,3 +14,11 @@ server-backed authentication and do not sync across devices; anyone with access
 to this browser profile can alter the saved data. Do not use a sensitive or
 reused password. Serve the site over HTTPS (or localhost) for Web Crypto
 password hashing.
+
+## Terms and conditions
+
+Players must agree to the terms shown when opening the game. Agreement is
+remembered in this browser; choosing "I disagree" keeps the game locked. The
+terms explain that locally stored accounts and scores cannot be recovered or
+secured by the game owner if the browser profile is compromised. This local
+agreement prompt is not a security mechanism or a substitute for legal advice.
